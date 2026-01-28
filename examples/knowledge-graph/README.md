@@ -143,6 +143,24 @@ export KG_EMBEDDINGS_MODEL=alias-embeddings
 DB_NAME=test_db uv run --env-file .env -- fastapi run examples/knowledge-graph/src/knowledge_graph/server.py --port 8080
 ```
 
+By default, ingestion is disabled so the server can start quickly. To enable
+ingestion at startup:
+
+```bash
+export KG_ENABLE_INGESTION=true
+```
+
+Recommended flow for large uploads:
+
+1) Upload documents.
+2) Run ingestion separately.
+
+To run ingestion separately (recommended for large backlogs):
+
+```bash
+./scripts/start_ingestion.sh
+```
+
 If you see WebSocket disconnects, switch to HTTP for the DB client:
 
 ```bash
@@ -166,6 +184,12 @@ To enable fallback converters:
 export KG_PDF_FALLBACK=true
 ```
 
+Docling tokenizer configuration:
+
+```bash
+export KG_DOCLING_TOKENIZER=cl100k_base
+```
+
 ### Markdown ingestion
 
 You can upload `.md` files directly; they are chunked locally without PDF
@@ -187,6 +211,66 @@ or `just knowledge-graph test_db` from the repo base directory.
 
 ```bash
 DB_NAME=test_db uv run --env-file .env uvicorn knowledge_graph.agent:app --host 127.0.0.1 --port 7932
+```
+
+### Status check
+
+```bash
+./scripts/status_check.sh
+```
+
+This script now acts as a status checker and log tail helper. Logs are written
+to `logs/server.log` and `logs/ui.log`.
+
+### Quickstart scripts
+
+Start SurrealDB:
+
+```bash
+./scripts/run_surrealdb.sh
+```
+
+Start server (foreground):
+
+```bash
+./scripts/start_server.sh
+```
+
+Start server in background:
+
+```bash
+./scripts/start_server.sh -b
+```
+
+Upload PDFs/Markdowns:
+
+```bash
+./scripts/upload_pdfs.sh /path/to/folder
+```
+
+Run ingestion (process backlog):
+
+```bash
+./scripts/start_ingestion.sh
+```
+
+Start UI:
+
+```bash
+source scripts/start_ui.sh
+```
+
+SurrealDB retry settings (optional):
+
+```bash
+export KG_DB_RETRY_ATTEMPTS=3
+export KG_DB_RETRY_DELAY=1.0
+```
+
+Check status:
+
+```bash
+./scripts/status_check.sh
 ```
 
 Limit retrieval tool calls per question (default: 10):

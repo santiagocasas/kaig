@@ -34,24 +34,39 @@ class Server:
     def __init__(self, db_name: str):
         self.db: DB = init_db(True, db_name)
         self.exe: flow.Executor = flow.Executor(self.db)
+        ingestion_enabled = os.getenv(
+            "KG_ENABLE_INGESTION", "false"
+        ).lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
 
         @asynccontextmanager
         async def lifespan(_app: FastAPI):
             logger.info("Application is starting up...")
-            task = asyncio.create_task(ingestion_loop(self.exe))
+            task = None
+            if ingestion_enabled:
+                task = asyncio.create_task(ingestion_loop(self.exe))
+            else:
+                logger.info("Ingestion disabled (set KG_ENABLE_INGESTION=true)")
 
             yield  # --- This is the point where the application runs ---
 
             logger.info("Application is shutting down...")
 
-            # _ = task.cancel()
-            # Call stop instead of cancelling the task
-            self.exe.stop()
+            if task is not None:
+                # _ = task.cancel()
+                # Call stop instead of cancelling the task
+                self.exe.stop()
 
-            try:
-                await task
-            except asyncio.CancelledError:
-                logger.info("Background loop was cancelled during shutdown.")
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    logger.info(
+                        "Background loop was cancelled during shutdown."
+                    )
 
         # ----------------------------------------------------------------------
         self.app: FastAPI = FastAPI(lifespan=lifespan)

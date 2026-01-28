@@ -1,5 +1,6 @@
 import dataclasses
 import logging
+import os
 from pathlib import Path
 from typing import override
 
@@ -80,8 +81,21 @@ class DoclingConverter(BaseConverter):
         if isinstance(source, Path):
             source = safe_path(Path("/"), source)
 
+        tokenizer_name = os.getenv("KG_DOCLING_TOKENIZER")
+        if tokenizer_name:
+            encoding = tiktoken.get_encoding(tokenizer_name)
+        else:
+            try:
+                encoding = tiktoken.encoding_for_model(self._model_name)
+            except Exception:
+                encoding = tiktoken.get_encoding("cl100k_base")
+                logger.warning(
+                    "Docling tokenizer fallback to cl100k_base for model %s",
+                    self._model_name,
+                )
+
         tokenizer = OpenAITokenizer(
-            tokenizer=tiktoken.encoding_for_model(self._model_name),
+            tokenizer=encoding,
             max_tokens=self._max_tokens,
         )
 

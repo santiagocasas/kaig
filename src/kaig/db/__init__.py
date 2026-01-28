@@ -1,6 +1,8 @@
 import hashlib
 import logging
+import os
 import sys
+import time
 from dataclasses import asdict
 from pathlib import Path
 from textwrap import dedent
@@ -18,6 +20,7 @@ from surrealdb import (
     Surreal,
     Value,
 )
+from websockets.exceptions import ConnectionClosedError
 from surrealdb import (
     RecordID as SurrealRecordID,
 )
@@ -267,10 +270,27 @@ class DB:
         surql = self._load_surql(file)
         if template_vars is not None:
             surql = surql.format(**template_vars)
-        res: Object = self.sync_conn.query_raw(
-            surql, cast(dict[str, Value], vars)
-        )
-        return self._extract_result_and_time(res)
+        max_retries = int(os.getenv("KG_DB_RETRY_ATTEMPTS", "3"))
+        retry_delay = float(os.getenv("KG_DB_RETRY_DELAY", "1.0"))
+        last_error: Exception | None = None
+        for attempt in range(1, max_retries + 1):
+            try:
+                res: Object = self.sync_conn.query_raw(
+                    surql, cast(dict[str, Value], vars)
+                )
+                return self._extract_result_and_time(res)
+            except ConnectionClosedError as exc:
+                last_error = exc
+                logger.warning(
+                    "SurrealDB connection closed (attempt %s/%s), retrying",
+                    attempt,
+                    max_retries,
+                )
+                self._sync_conn = None
+                time.sleep(retry_delay)
+        if last_error:
+            raise last_error
+        raise RuntimeError("SurrealDB query failed")
 
     async def async_execute(
         self,

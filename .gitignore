@@ -23,6 +23,8 @@ history.txt
 database/
 databases/
 dbs/
+logs/
+pdfs/
 # Tmp and uploads from demo-unstruct-to-graph
 uploads/
 tmp/
