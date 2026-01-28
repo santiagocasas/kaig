@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import re
 import time
@@ -15,6 +16,8 @@ from pydantic.json_schema import JsonSchemaValue
 from .definitions import Object
 
 T_Model = TypeVar("T_Model", bound=BaseModel)
+
+logger = logging.getLogger(__name__)
 
 
 PROMPT_INFER_CONCEPTS = """
@@ -92,6 +95,8 @@ class LLM:
         provider: Literal["ollama", "openai"],
         model: str,
         *,
+        base_url: str | None = None,
+        fallback_models: Sequence[str] | None = None,
         temperature: float = 0.7,
         max_completion_tokens: int | None = None,
         top_p: float = 1.0,
@@ -105,6 +110,8 @@ class LLM:
         ======
         - provider: "ollama" or "openai"
         - model: model name (e.g., "llama3.2" for Ollama, "gpt-4" for OpenAI)
+        - base_url: optional base URL for OpenAI-compatible APIs
+        - fallback_models: optional model fallback list (OpenAI only)
         - temperature: sampling temperature (0.0 to 2.0)
         - max_completion_tokens: maximum tokens to generate (None for provider default)
         - top_p: nucleus sampling parameter
@@ -120,6 +127,9 @@ class LLM:
         self._top_p: float = top_p
         self._frequency_penalty: float = frequency_penalty
         self._presence_penalty: float = presence_penalty
+        self._fallback_models: list[str] = [
+            x for x in (fallback_models or []) if x and x != model
+        ]
         self._analytics: Callable[[str, str, str, float, str], None] | None = (
             analytics
         )
@@ -128,10 +138,26 @@ class LLM:
         # Initialize OpenAI client if needed
         if provider == "openai":
             _ = logfire.instrument_openai()
-            api_key = os.getenv("OPENAI_API_KEY")
+            api_key = os.getenv("OPENAI_API_KEY") or os.getenv(
+                "BLABLADOR_API_KEY"
+            )
             if not api_key:
-                raise ValueError("OPENAI_API_KEY environment variable not set")
-            self._openai_client: OpenAI | None = OpenAI(api_key=api_key)
+                raise ValueError(
+                    "OPENAI_API_KEY or BLABLADOR_API_KEY environment variable not set"
+                )
+            resolved_base_url = (
+                base_url
+                or os.getenv("OPENAI_BASE_URL")
+                or os.getenv("OPENAI_API_BASE")
+                or os.getenv("BLABLADOR_BASE_URL")
+            )
+            if resolved_base_url:
+                resolved_base_url = resolved_base_url.rstrip("/") + "/"
+                self._openai_client = OpenAI(
+                    api_key=api_key, base_url=resolved_base_url
+                )
+            else:
+                self._openai_client = OpenAI(api_key=api_key)
         else:
             self._openai_client = None
 
@@ -160,22 +186,49 @@ class LLM:
         if self._openai_client is None:
             raise ValueError("OpenAI client not initialized")
 
-        response = self._openai_client.chat.completions.create(
-            model=self._model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=self._temperature,
-            top_p=self._top_p,
-            frequency_penalty=self._frequency_penalty,
-            presence_penalty=self._presence_penalty,
-            max_completion_tokens=self._max_completion_tokens
-            if self._max_completion_tokens is not None
-            else omit,
-            response_format=response_format
-            if response_format is not None
-            else omit,
-            timeout=120,
+        models = [self._model, *self._fallback_models]
+        last_exc: Exception | None = None
+        for index, model in enumerate(models):
+            try:
+                response = self._openai_client.chat.completions.create(
+                    model=model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=self._temperature,
+                    top_p=self._top_p,
+                    frequency_penalty=self._frequency_penalty,
+                    presence_penalty=self._presence_penalty,
+                    max_completion_tokens=self._max_completion_tokens
+                    if self._max_completion_tokens is not None
+                    else omit,
+                    response_format=response_format
+                    if response_format is not None
+                    else omit,
+                    timeout=120,
+                )
+                if model != self._model:
+                    logger.warning(
+                        "LLM fallback from %s to %s", self._model, model
+                    )
+                    self._model = model
+                return response.choices[0].message.content or ""
+            except Exception as exc:
+                last_exc = exc
+                if index >= len(models) - 1:
+                    break
+                if not self._should_retry_with_fallback(exc):
+                    raise
+        if last_exc:
+            raise last_exc
+        raise ValueError("OpenAI response failed")
+
+    @staticmethod
+    def _should_retry_with_fallback(exc: Exception) -> bool:
+        message = str(exc).lower()
+        return (
+            "unsupported model" in message
+            or "invalid_request_error" in message
+            or "no available clients" in message
         )
-        return response.choices[0].message.content or ""
 
     def gen_name_from_desc(self, desc: str) -> str:
         prompt = PROMPT_NAME_FROM_DESC.format(desc=desc)

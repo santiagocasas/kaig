@@ -472,7 +472,7 @@ class DB:
         if cached:
             # update the document to trigger process
             _ = self.query_one(
-                "UPDATE ONLY $record", {"record": record_id}, Object
+                "UPDATE ONLY $record", {"record": record_id}, dict
             )
             return cached, True
         else:

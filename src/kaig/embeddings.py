@@ -11,29 +11,55 @@ class Embedder:
     def __init__(
         self,
         *,
-        provider: Literal["ollama", "openai"],
+        provider: Literal["ollama", "openai", "sentence-transformers"],
         model_name: str,
         vector_type: str,
+        base_url: str | None = None,
     ):
         """
         Initialize embedder with specified provider.
 
         Params:
         ======
-        - provider: "ollama" or "openai"
+        - provider: "ollama", "openai", or "sentence-transformers"
         - model_name: model name (e.g., "nomic-embed-text" for Ollama, "text-embedding-3-small" for OpenAI)
         - vector_type: vector type for database (e.g., "F32", "I8")
+        - base_url: optional base URL for OpenAI-compatible APIs
         """
-        self._provider: Literal["ollama", "openai"] = provider
+        self._provider: Literal["ollama", "openai", "sentence-transformers"] = (
+            provider
+        )
         self.model_name: str = model_name
         self.vector_type: str = vector_type
+        self._st_model = None
 
-        # Initialize OpenAI client if needed
+        # Initialize clients if needed
         if provider == "openai":
-            api_key = os.getenv("OPENAI_API_KEY")
+            api_key = os.getenv("OPENAI_API_KEY") or os.getenv(
+                "BLABLADOR_API_KEY"
+            )
             if not api_key:
-                raise ValueError("OPENAI_API_KEY environment variable not set")
-            self._openai_client: OpenAI | None = OpenAI(api_key=api_key)
+                raise ValueError(
+                    "OPENAI_API_KEY or BLABLADOR_API_KEY environment variable not set"
+                )
+            resolved_base_url = (
+                base_url
+                or os.getenv("OPENAI_BASE_URL")
+                or os.getenv("OPENAI_API_BASE")
+                or os.getenv("BLABLADOR_BASE_URL")
+            )
+            if resolved_base_url:
+                resolved_base_url = resolved_base_url.rstrip("/") + "/"
+                self._openai_client = OpenAI(
+                    api_key=api_key, base_url=resolved_base_url
+                )
+            else:
+                self._openai_client = OpenAI(api_key=api_key)
+        elif provider == "sentence-transformers":
+            from sentence_transformers import SentenceTransformer
+
+            self._openai_client = None
+            self._st_model = SentenceTransformer(self.model_name)
         else:
             self._openai_client = None
 
@@ -41,6 +67,12 @@ class Embedder:
         if provider == "ollama":
             vec = ollama.embed(model=self.model_name, input="hi").embeddings[0]
             self.dimension: int = len(vec)
+        elif provider == "sentence-transformers":
+            if self._st_model is None:
+                raise ValueError("SentenceTransformer model not initialized")
+            self.dimension = int(
+                self._st_model.get_sentence_embedding_dimension()
+            )
         else:
             _ = logfire.instrument_openai()
             if self._openai_client is None:
@@ -106,6 +138,13 @@ class Embedder:
                 return 8192
             # Default to 8192 if unknown
             return 8192
+        elif self._provider == "sentence-transformers":
+            if self._st_model is None:
+                raise ValueError("SentenceTransformer model not initialized")
+            max_len = getattr(self._st_model, "max_seq_length", None)
+            if max_len:
+                return int(max_len)
+            return 512
         else:
             raise ValueError(f"Unknown provider: {self._provider}")
 
@@ -123,6 +162,12 @@ class Embedder:
             model=self.model_name, input=text
         )
         return response.data[0].embedding
+
+    def _embed_sentence_transformers(self, text: str) -> list[float]:
+        if self._st_model is None:
+            raise ValueError("SentenceTransformer model not initialized")
+        vec = self._st_model.encode(text, normalize_embeddings=False)
+        return [float(x) for x in vec.tolist()]
 
     def _embed_batch_ollama(
         self, texts: list[str]
@@ -143,14 +188,26 @@ class Embedder:
         )
         return [data.embedding for data in response.data]
 
+    def _embed_batch_sentence_transformers(
+        self, texts: list[str]
+    ) -> Sequence[Sequence[float]]:
+        if self._st_model is None:
+            raise ValueError("SentenceTransformer model not initialized")
+        vecs = self._st_model.encode(texts, normalize_embeddings=False)
+        return [list(map(float, vec)) for vec in vecs.tolist()]
+
     def embed(self, text: str) -> list[float]:
         if self._provider == "ollama":
             return self._embed_ollama(text)
+        if self._provider == "sentence-transformers":
+            return self._embed_sentence_transformers(text)
         else:
             return self._embed_openai(text)
 
     def embed_batch(self, texts: list[str]) -> Sequence[Sequence[float]]:
         if self._provider == "ollama":
             return self._embed_batch_ollama(texts)
+        if self._provider == "sentence-transformers":
+            return self._embed_batch_sentence_transformers(texts)
         else:
             return self._embed_batch_openai(texts)

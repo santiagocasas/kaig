@@ -9,7 +9,12 @@ from ..definitions import (
 class BaseConverter(ABC):
     @staticmethod
     def supported() -> list[str]:
-        return ["application/pdf", "application/xlsx"]
+        return [
+            "application/pdf",
+            "application/xlsx",
+            "text/markdown",
+            "text/plain",
+        ]
 
     @abstractmethod
     def convert_and_chunk(

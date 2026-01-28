@@ -15,7 +15,7 @@ At a high level:
 
 ## Code layout
 
-The package lives under `examples/knowledge-graph/src/knowledge-graph/`:
+The package lives under `examples/knowledge-graph/src/knowledge_graph/`:
 
 - `server.py`
   - FastAPI application and lifecycle management.
@@ -96,20 +96,110 @@ were processed by which version of the flow.
 surreal start -u root -p root rocksdb:dbs/knowledge-graph
 ```
 
+or use the helper script:
+
+```bash
+./scripts/run_surrealdb.sh
+```
+
 or `just knowledge-graph-db` from the repo base directory.
+
+### LLM + embeddings (Blablador)
+
+This example uses OpenAI-compatible APIs. For Blablador, set:
+
+```bash
+export OPENAI_API_KEY="$BLABLADOR_API_KEY"
+export OPENAI_BASE_URL="${BLABLADOR_BASE_URL:-https://api.helmholtz-blablador.fz-juelich.de/v1/}"
+```
+
+Defaults are `alias-fast` for chat and local sentence-transformers embeddings.
+
+Override chat model and fallbacks if needed:
+
+```bash
+export KG_LLM_MODEL=alias-fast
+export KG_LLM_FALLBACK_MODELS=alias-large,alias-code
+export KG_CHAT_MODEL=alias-fast
+```
+
+To use local embeddings explicitly:
+
+```bash
+export KG_EMBEDDINGS_PROVIDER=sentence-transformers
+export KG_LOCAL_EMBEDDINGS_MODEL=sentence-transformers/all-MiniLM-L6-v2
+```
+
+To try Blablador embeddings (may be unstable):
+
+```bash
+export KG_EMBEDDINGS_PROVIDER=openai
+export KG_EMBEDDINGS_MODEL=alias-embeddings
+```
 
 ### Server and ingestion worker
 
 ```bash
-DB_NAME=test_db uv run --env-file .env -- fastapi run examples/knowledge-graph/src/knowledge-graph/server.py --port 8080
+DB_NAME=test_db uv run --env-file .env -- fastapi run examples/knowledge-graph/src/knowledge_graph/server.py --port 8080
 ```
+
+If you see WebSocket disconnects, switch to HTTP for the DB client:
+
+```bash
+export KG_DB_URL=http://localhost:8000
+```
+
+### PDF converter selection
+
+By default, the ingestion flow prefers Docling with no fallback. You can
+override the order with:
+
+```bash
+export KG_PDF_CONVERTER=docling
+```
+
+Other values: `kreuzberg` (prefer Kreuzberg), `auto` (try Kreuzberg first).
+
+To enable fallback converters:
+
+```bash
+export KG_PDF_FALLBACK=true
+```
+
+### Markdown ingestion
+
+You can upload `.md` files directly; they are chunked locally without PDF
+conversion. The uploader also guesses content types by filename when missing.
+
+If a file comes through as `application/octet-stream`, the ingestion pipeline
+will attempt to guess the type from the filename before converting.
+
+### Party plan metadata
+
+The knowledge-graph example includes a metadata file for the 2026 party plan
+PDFs. It is used to expand acronyms and to surface plan URLs in answers:
+
+- `examples/knowledge-graph/data/party_plan_metadata.json`
 
 or `just knowledge-graph test_db` from the repo base directory.
 
 ### Chat agent
 
 ```bash
-DB_NAME=test_db uv run --env-file .env uvicorn knowledge-graph.agent:app --host 127.0.0.1 --port 7932
+DB_NAME=test_db uv run --env-file .env uvicorn knowledge_graph.agent:app --host 127.0.0.1 --port 7932
+```
+
+Limit retrieval tool calls per question (default: 10):
+
+```bash
+export KG_MAX_RETRIEVE_CALLS=1
+```
+
+Tune search threshold and fallback:
+
+```bash
+export KG_SEARCH_THRESHOLD=0.15
+export KG_SEARCH_FALLBACK=true
 ```
 
 or `just knowledge-graph-agent test_db` from the repo base directory.

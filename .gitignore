@@ -22,10 +22,11 @@ history.txt
 # DB
 database/
 databases/
-
+dbs/
 # Tmp and uploads from demo-unstruct-to-graph
 uploads/
 tmp/
 
 # Env
 .env
+.secrets

@@ -1,5 +1,6 @@
 import hashlib
 import logging
+import mimetypes
 from io import BytesIO
 
 import logfire
@@ -25,18 +26,40 @@ def chunking_handler(db: DB, document: OriginalDocument) -> None:
             name=document.filename, stream=BytesIO(document.file)
         )
 
-        try:
-            embedding_model = (
-                db.embedder.model_name
-                if db.embedder
-                else "text-embedding-3-small"
+        embedding_model = (
+            db.embedder.model_name if db.embedder else "text-embedding-3-small"
+        )
+        content_type = document.content_type
+        if not content_type or content_type == "application/octet-stream":
+            guessed, _ = mimetypes.guess_type(document.filename)
+            if guessed:
+                content_type = guessed
+
+        converters = ConvertersFactory.get_converters(
+            content_type, embedding_model
+        )
+        result = None
+        last_error: Exception | None = None
+        for converter in converters:
+            try:
+                result = converter.convert_and_chunk(doc_stream)
+                logger.info("Using %s", converter.__class__.__name__)
+                break
+            except Exception as e:
+                last_error = e
+                logger.warning(
+                    "Converter %s failed for document %s: %s",
+                    converter.__class__.__name__,
+                    document.id,
+                    e,
+                )
+        if result is None:
+            logger.error(
+                "Error chunking document %s: %s", document.id, last_error
             )
-            result = ConvertersFactory.get_converter(
-                document.content_type, embedding_model
-            ).convert_and_chunk(doc_stream)
-        except Exception as e:
-            logger.error(f"Error chunking document {document.id}: {e}")
-            raise e
+            if last_error:
+                raise last_error
+            raise RuntimeError("No converters available")
 
         for i, chunk in enumerate(result.chunks):
             chunk_text = (

@@ -1,4 +1,5 @@
 import logging
+import mimetypes
 import shutil
 from pathlib import Path
 
@@ -26,8 +27,16 @@ async def upload_handler(db: DB, file: UploadFile = File(...)) -> None:  # pyrig
             shutil.copyfileobj(file.file, f)
         await file.seek(0)
         content = await file.read()
+        content_type = file.content_type
+        if (
+            not content_type
+            or content_type == "unknown"
+            or content_type == "application/octet-stream"
+        ):
+            guessed, _ = mimetypes.guess_type(file.filename)
+            content_type = guessed or "application/octet-stream"
         _doc, _cached = db.store_original_document_from_bytes(
-            file.filename, file.content_type or "unknown", content
+            file.filename, content_type, content
         )
         logger.info(f"File stored: {_doc.id}")
     except Exception as e:
