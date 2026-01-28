@@ -15,6 +15,7 @@ dependencies = [
     "logfire",
     "pydantic-ai-slim[openai]>=1.39.0",
     "python-multipart>=0.0.20",
+    "streamlit>=1.36.0",
     "tiktoken>=0.12.0",
 ]
 

@@ -1,0 +1,29 @@
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1
+ENV PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl -sSf https://install.surrealdb.com | sh
+ENV PATH="/root/.surrealdb:${PATH}"
+
+RUN pip install uv
+
+COPY . /app
+
+RUN uv sync --all-packages
+
+COPY dbs/knowledge-graph /dbs/knowledge-graph
+
+RUN chmod +x /app/scripts/streamlit_entrypoint.sh
+
+EXPOSE 8501
+
+ENTRYPOINT ["/app/scripts/streamlit_entrypoint.sh"]

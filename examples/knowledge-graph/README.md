@@ -260,6 +260,39 @@ Start UI:
 source scripts/start_ui.sh
 ```
 
+### Streamlit app (query-first)
+
+Run locally (requires SurrealDB running):
+
+```bash
+export DB_NAME=test_db
+streamlit run examples/knowledge-graph/streamlit_app.py
+```
+
+Uploads are limited to one PDF/Markdown at a time (default max 50 MB).
+Ingestion runs in a background thread and writes logs to `logs/ingestion.log`.
+
+The Streamlit UI can display party banner images using `images/metadata.json`.
+
+Set the limit explicitly:
+
+```bash
+export KG_MAX_UPLOAD_MB=50
+export STREAMLIT_SERVER_MAX_UPLOAD_SIZE=50
+```
+
+Docker (single container with SurrealDB inside):
+
+```bash
+docker build -f Dockerfile.streamlit -t kaig-streamlit .
+docker run -p 8501:8501 \
+  -e BLABLADOR_API_KEY=... \
+  -e BLABLADOR_BASE_URL=https://api.helmholtz-blablador.fz-juelich.de/v1/ \
+  kaig-streamlit
+```
+
+The build expects `dbs/knowledge-graph/` to be present in the build context.
+
 SurrealDB retry settings (optional):
 
 ```bash
